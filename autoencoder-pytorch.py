@@ -90,7 +90,8 @@ train_loader = torch.utils.data.DataLoader(
 # In[5]:
 
 
-hidden_layer_size = 600
+hidden_layer_1_size = 600
+hidden_layer_2_size = 500
 code_size = 400
 
 
@@ -101,19 +102,19 @@ class SplitAutoencoder(nn.Module):
     def __init__(self, **kwargs):
         super().__init__()
         self.encoder = nn.Sequential(
-            nn.Linear(in_features=kwargs["input_shape"], out_features=hidden_layer_size),
+            nn.Linear(in_features=kwargs["input_shape"], out_features=hidden_layer_1_size),
             nn.ReLU(),
-            #nn.Linear(in_features=hidden_layer_size, out_features=hidden_layer_size),
-            #nn.ReLU(),
-            nn.Linear(in_features=hidden_layer_size, out_features=code_size)
+            nn.Linear(in_features=hidden_layer_1_size, out_features=hidden_layer_2_size),
+            nn.ReLU(),
+            nn.Linear(in_features=hidden_layer_2_size, out_features=code_size)
         )
         
         self.decoder = nn.Sequential(
-            nn.Linear(in_features=code_size, out_features=hidden_layer_size),
+            nn.Linear(in_features=code_size, out_features=hidden_layer_2_size),
             nn.ReLU(),
-            #nn.Linear(in_features=hidden_layer_size, out_features=hidden_layer_size),
-            #nn.ReLU(),
-            nn.Linear(in_features=hidden_layer_size, out_features=image_size)
+            nn.Linear(in_features=hidden_layer_2_size, out_features=hidden_layer_1_size),
+            nn.ReLU(),
+            nn.Linear(in_features=hidden_layer_1_size, out_features=image_size)
         )
         
     def forward(self, features):
@@ -145,7 +146,7 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # mean-squared error loss
 criterion = nn.MSELoss()
-#criterion = nn.BCELoss()
+#criterion = nn.BCEWithLogitsLoss()
 
 
 # We train our autoencoder for our specified number of epochs.
