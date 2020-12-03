@@ -1,3 +1,19 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# Implementing an Autoencoder in PyTorch
+# ===
+# 
+# This is adapted from the workbook provided alongside the article "Implementing an Autoencoder in Pytorch" which can be found [here](https://medium.com/pytorch/implementing-an-autoencoder-in-pytorch-19baa22647d1). The primary differences are that the network is much larger (as the code is designed to work with much larger images) and the model is split into two parts to allow for differential encode/decode metrics such as Mahalanobis Distance.
+# 
+# This version of the model is designed with a convolutional model.
+# 
+
+# ## Setup
+# 
+# We begin by importing our dependencies.
+
+# In[1]:
 
 
 import matplotlib.pyplot as plt
@@ -11,6 +27,31 @@ import torchvision
 import math
 import numpy
 
+from model import SplitAutoencoder
+
+
+# Set our seed and other configurations for reproducibility.
+
+# In[2]:
+
+
+seed = 42
+torch.manual_seed(seed)
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
+
+if torch.cuda.is_available():
+    platform = "cuda"
+else:
+    platform = "cpu"
+print(platform)
+
+
+# We set the batch size, the number of training epochs, and the learning rate. Batch size has to be reasonably low as we can't fit a huge number of these images into VRAM on my laptop.
+# 
+# Image size can be set here as I'm automatically resizing the images in my extraction code.
+
+# In[3]:
 
 
 width = 1024
@@ -33,6 +74,13 @@ image_count = 500
 validation_split = 0.9
 
 
+# ## Dataset
+# 
+# ImageFolder is used to load the base distribution images
+
+# In[4]:
+
+
 from torchvision.datasets import ImageFolder
 
 from torchvision.transforms import ToTensor,Grayscale
@@ -52,8 +100,7 @@ else:
 dataset_len = len(train_dataset_subset)
 indices = list(range(dataset_len))
 
-
-
+# Randomly splitting indices:
 val_len = int(np.floor((1.0 - validation_split) * dataset_len))
 
 dataset_size = len(train_dataset_subset)
@@ -80,61 +127,7 @@ print(split)
 print(val_len)
 
 
-
-
-class SplitAutoencoder(nn.Module):
-    def __init__(self, **kwargs):
-        super().__init__()
-        input_size = kwargs["input_shape"] #xy
-        x = input_size[1]
-        y = input_size[0]
-        conv_scale = kwargs["convolutions"] #conv at first level
-        flattened_size = int((x/8)*(y/8)*(conv_scale*4))
-        self.encoder = nn.Sequential( 
-            nn.Conv2d(in_channels=1, out_channels=conv_scale, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2), # x/2 x y/2 x conv
-            nn.Conv2d(in_channels=conv_scale, out_channels=conv_scale*2, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2), # x/4 x y/4 x conv*2
-            nn.Conv2d(in_channels=conv_scale*2, out_channels=conv_scale*4, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2), # x/8 x y/8 x conv*4
-            nn.Flatten(), # x/8*y/8*conv*4
-            nn.Linear(in_features=flattened_size,out_features=kwargs["code_size"]),
-            nn.ReLU()
-        )
-        # result (encoding) is code_size x 1
-        
-        self.decoder = nn.Sequential(
-            nn.Linear(in_features=kwargs["code_size"], out_features=flattened_size), 
-            nn.Unflatten(1,(int(conv_scale*4),int(x/8),int(y/8))),
-            nn.Conv2d(in_channels=conv_scale*4, out_channels=conv_scale*2, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='bilinear'), 
-            nn.Conv2d(in_channels=conv_scale*2, out_channels=conv_scale, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(in_channels=conv_scale, out_channels=1, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            #nn.Sigmoid(),
-            nn.Upsample(scale_factor=2, mode='bilinear')
-            #nn.Sigmoid()
-        )
-        
-    def forward(self, features):
-        code = self.encoder(features)
-        out = self.decoder(code)
-        return out
-
-
-# Before using our defined autoencoder class, we have the following things to do:
-#     1. We configure which device we want to run on.
-#     2. We instantiate our modules.
-#     3. We define our optimizer.
-#     4. We define our reconstruction loss.
-
-# In[ ]:
+# In[5]:
 
 
 #  use gpu if available
