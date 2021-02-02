@@ -26,8 +26,14 @@ from torch.utils.data.sampler import SubsetRandomSampler
 import torchvision
 import math
 import numpy
+import collections
 
-from model import SplitAutoencoder
+from model import SplitAutoencoder,ExtensibleEncoder,ExtensibleDecoder
+
+from torch.utils.data import Dataset
+from natsort import natsorted
+from PIL import Image
+import os
 
 
 # Set our seed and other configurations for reproducibility.
@@ -54,21 +60,21 @@ print(platform)
 # In[3]:
 
 
-width = 1024
-height = 1024
+width = 256
+height = 256
 
 image_size = width * height
 
-batch_size = 12
-epochs = 50
-learning_rate = 1e-3
+batch_size = 8
+epochs = 40
+learning_rate = 1e-4
 
 #code_size = 100
-code_sides = [10]
+code_sides = [12,14,16]
 
-convolution_filters = 8
+convolution_filters = [4,6,8]
 
-image_count = 500
+image_count = 300
 #image_count = -1
 
 validation_split = 0.9
@@ -76,22 +82,42 @@ validation_split = 0.9
 
 # ## Dataset
 # 
-# ImageFolder is used to load the base distribution images
+# Using a custom dataset class to load the images:
 
 # In[4]:
+
+
+class CustomDataSet(Dataset):
+    def __init__(self, main_dir, transform):
+        self.main_dir = main_dir
+        self.transform = transform
+        all_imgs = os.listdir(main_dir)
+        self.total_imgs = natsorted(all_imgs)
+
+    def __len__(self):
+        return len(self.total_imgs)
+
+    def __getitem__(self, idx):
+        img_loc = os.path.join(self.main_dir, self.total_imgs[idx])
+        image = Image.open(img_loc).convert("F")
+        tensor_image = self.transform(image)
+        return tensor_image
+
+
+# In[5]:
 
 
 from torchvision.datasets import ImageFolder
 
 from torchvision.transforms import ToTensor,Grayscale
 transform = torchvision.transforms.Compose([
-     torchvision.transforms.Grayscale(),
-     torchvision.transforms.Resize((height,width)),
-     torchvision.transforms.ToTensor()
+    torchvision.transforms.ToTensor(),
+    torchvision.transforms.Normalize(0.0,65535.0)
     ])
 
-root_dir = "../../Data/OPTIMAM_NEW/png_images"
-train_dataset = torchvision.datasets.ImageFolder(root=root_dir, transform=transform)
+root_dir = "../../Data/OPTIMAM_NEW/png_images/casewise/ScreeningMammography/256/detector"
+#train_dataset = torchvision.datasets.ImageFolder(root=root_dir, transform=transform)
+train_dataset = CustomDataSet(root_dir, transform)
 if (image_count == -1):
     train_dataset_subset = train_dataset
 else:
@@ -127,12 +153,13 @@ print(split)
 print(val_len)
 
 
-# In[5]:
+# In[6]:
 
 
 #  use gpu if available
 #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = torch.device(platform)
+run_device = torch.device(platform)
+store_device = torch.device("cpu")
 
 # create a model from `AE` autoencoder class
 # load it to the specified device, either gpu or cpu
@@ -141,78 +168,116 @@ models = []
 optimizers = []
 
 for i in range(len(code_sides)):
+    models.append([])
+    optimizers.append([])
     code_size = code_sides[i] * code_sides[i]
-    models.append(SplitAutoencoder(input_shape=(height,width),code_size=code_size,convolutions=convolution_filters).to(device))
-    optimizers.append(optim.Adam(models[i].parameters(), lr=learning_rate))
+    for j in range(len(convolution_filters)):
+        filters =  convolution_filters[j]
+        new_model = SplitAutoencoder(input_shape=(height,width),code_size=code_size,convolutions=filters).to(store_device)
+        models[i].append(new_model)
+        optimizers[i].append(optim.Adam(new_model.parameters(), lr=learning_rate))
 
 # mean-squared error loss
 criterion = nn.MSELoss()
 #criterion = nn.BCELoss()
 
 
-# We train our autoencoder for our specified number of epochs.
+# We use a grid parameter search method to train our autoencoder for our specified number of epochs for each combination of code sizes and convolutional filters
 
-# In[ ]:
+# In[7]:
 
 
+best_model_dicts = []
+# populate with fake best models
 for i in range(len(code_sides)):
-    print("==================")
-    print("Running for code size:" + str(code_sides[i] * code_sides[i]))
-    for epoch in range(epochs):
-        losses = {'train':0.0, 'val':0.0}
-       
-        for phase in ['train', 'val']:
-            if phase == 'train':
-                models[i].train()  # Set model to training mode
-            else:
-                models[i].eval()  # Set model to evaluate mode
+    best_model_dicts.append([])
+    for j in range(len(convolution_filters)):
+        best_model_dicts[i].append((1.0,None))
+print(best_model_dicts)
 
-            for batch_features, labels in data_loaders[phase]:
-                # load it to the active device
-                batch_features = batch_features.to(device)
 
-                # reset the gradients back to zero
-                # PyTorch accumulates gradients on subsequent backward passes
-                optimizers[i].zero_grad()
+# In[8]:
 
-                # compute reconstructions
-                codes = models[i].encoder(batch_features)
-                outputs = models[i].decoder(codes)
 
-                # compute training reconstruction loss
-                local_loss = criterion(outputs,batch_features)
+train_losses = []
+val_losses = []        
+for i in range(len(code_sides)):
+    train_losses.append([])
+    val_losses.append([])
 
-                if phase == 'train':
-                    # compute accumulated gradients
-                    local_loss.backward()
-
-                    # perform parameter update based on current gradients
-                    optimizers[i].step()
-
-                # add the mini-batch training loss to epoch loss
-                losses[phase] += local_loss.item()
-
-        # compute the epoch training loss
-        #losses['train'] = losses['train'] / data_lengths['train']
-        #losses['val'] = losses['val'] / data_lengths['val']
-
-        losses['train'] = losses['train'] / len(data_loaders['train'])
-        losses['val'] = losses['val'] / len(data_loaders['val'])
-
+    for j in range(len(convolution_filters)):
+        print("==================")
         
-        # display the epoch training loss
-        print("epoch : {}/{}, train loss = {:.8f}, validation loss = {:.8f}".format(epoch + 1, epochs, losses['train'],losses['val']))
+        print("Running for code size:" + str(code_sides[i] * code_sides[i]) + " and filter size:"+str(convolution_filters[j]))
+        train_losses[i].append([])
+        val_losses[i].append([])
+        
+        model = models[i][j].to(run_device)
+
+        for epoch in range(epochs):
+            losses = {'train':0.0, 'val':0.0}
+
+            for phase in ['train', 'val']:
+                if phase == 'train':
+                    model.train()  # Set model to training mode
+                else:
+                    model.eval()  # Set model to evaluate mode
+
+                for batch_features in data_loaders[phase]:
+                    # load it to the active device
+                    batch_features = batch_features.to(run_device)
+
+                    # reset the gradients back to zero
+                    # PyTorch accumulates gradients on subsequent backward passes
+                    optimizers[i][j].zero_grad()
+
+                    # compute reconstructions
+                    #print(batch_features.size())
+                    codes = model.encoder(batch_features)
+                    outputs = model.decoder(codes)
+
+                    # compute training reconstruction loss
+                    local_loss = criterion(outputs,batch_features)
+
+                    if phase == 'train':
+                        # compute accumulated gradients
+                        local_loss.backward()
+
+                        # perform parameter update based on current gradients
+                        optimizers[i][j].step()
+
+                    # add the mini-batch training loss to epoch loss
+                    losses[phase] += local_loss.item()
+
+            # compute the epoch training loss
+            #losses['train'] = losses['train'] / data_lengths['train']
+            #losses['val'] = losses['val'] / data_lengths['val']
+
+            losses['train'] = losses['train'] / len(data_loaders['train'])
+            losses['val'] = losses['val'] / len(data_loaders['val'])
+
+            #check if best model
+            if(losses['val'] < best_model_dicts[i][j][0]):
+                best_model_dicts[i][j] = (losses['val'],models[i][j].state_dict())
+
+            train_losses[i][j].append(losses['train'])
+            val_losses[i][j].append(losses['val'])
+
+            # display the epoch training loss
+            print("epoch : {}/{}, train loss = {:.8f}, validation loss = {:.8f}".format(epoch + 1, epochs, losses['train'],losses['val']))
     
 
 
-# And save the trained models
+# Restore the best trained model and save.
 
-# In[ ]:
+# In[9]:
 
 
 for i in range(len(code_sides)):
-    PATH = "../../Data/OPTIMAM_NEW/model" + str(i) + ".pt"
-    torch.save(models[i], PATH)
+    if(best_model_dicts[i][j][1]!=None):
+        models[i][j].load_state_dict(best_model_dicts[i][j][1])
+        PATH = "../../Data/OPTIMAM_NEW/model" + str(i) + "_" + str(j) +".pt"
+        torch.save(models[i][j], PATH)
 
 
 # Let's extract some test examples to reconstruct using our trained autoencoder.
@@ -220,9 +285,8 @@ for i in range(len(code_sides)):
 # In[ ]:
 
 
-root_dir = "../../Data/OPTIMAM_NEW/png_images"
-test_dataset = torchvision.datasets.ImageFolder(root=root_dir, transform=transform) # same transform as we used for the training, for compatibility
-
+test_dataset = CustomDataSet(root_dir, transform) # same transform as we used for the training, for compatibility
+#test_dataset = train_dataset_subset
 if (image_count == -1):
     test_dataset_subset = test_dataset
 else:
@@ -247,7 +311,7 @@ reconstruction_sets = [None] * len(code_sides)
 with torch.no_grad():
     for i in range(len(code_sides)):
         for batch_features in test_loader:
-            batch_features = batch_features[0]
+            #batch_features = batch_features[0]
             test_examples = batch_features.to(device)
             n_codes = models[i].encoder(test_examples)
             reconstruction = models[i](test_examples)
@@ -271,7 +335,8 @@ with torch.no_grad():
             ax = plt.subplot(3, number, index + 1)
             test_examples = test_example_sets[i]
             copyback = test_examples[index].cpu()
-            plt.imshow(copyback.numpy().reshape(height, width))
+            #plt.imshow(copyback.numpy().reshape(height, width), vmin=0, vmax=65535)
+            plt.imshow(copyback.reshape(height, width))
             plt.gray()
             ax.get_xaxis().set_visible(False)
             ax.get_yaxis().set_visible(False)
@@ -289,7 +354,7 @@ with torch.no_grad():
             ax = plt.subplot(3, number, index + 6 + number)
             reconstruction = reconstruction_sets[i]
             recon_copyback = reconstruction[index].cpu()
-            plt.imshow(recon_copyback.numpy().reshape(height, width))
+            plt.imshow(recon_copyback.reshape(height, width))
             plt.gray()
             ax.get_xaxis().set_visible(False)
             ax.get_yaxis().set_visible(False)
