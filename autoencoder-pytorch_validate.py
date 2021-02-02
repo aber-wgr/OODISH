@@ -70,9 +70,9 @@ epochs = 40
 learning_rate = 1e-4
 
 #code_size = 100
-code_sides = [12,14,16]
+code_sides = [13,14,15,16,17,18]
 
-convolution_filters = [4,6,8]
+convolution_filters = [4,5,6,7,8]
 
 image_count = 300
 #image_count = -1
@@ -193,7 +193,7 @@ for i in range(len(code_sides)):
     best_model_dicts.append([])
     for j in range(len(convolution_filters)):
         best_model_dicts[i].append((1.0,None))
-print(best_model_dicts)
+#print(best_model_dicts)
 
 
 # In[8]:
@@ -209,62 +209,77 @@ for i in range(len(code_sides)):
         print("==================")
         
         print("Running for code size:" + str(code_sides[i] * code_sides[i]) + " and filter size:"+str(convolution_filters[j]))
+
         train_losses[i].append([])
         val_losses[i].append([])
-        
-        model = models[i][j].to(run_device)
 
-        for epoch in range(epochs):
-            losses = {'train':0.0, 'val':0.0}
+        try:
+            model = models[i][j].to(run_device)
+            
+            for epoch in range(epochs):
+                losses = {'train':0.0, 'val':0.0}
 
-            for phase in ['train', 'val']:
-                if phase == 'train':
-                    model.train()  # Set model to training mode
-                else:
-                    model.eval()  # Set model to evaluate mode
-
-                for batch_features in data_loaders[phase]:
-                    # load it to the active device
-                    batch_features = batch_features.to(run_device)
-
-                    # reset the gradients back to zero
-                    # PyTorch accumulates gradients on subsequent backward passes
-                    optimizers[i][j].zero_grad()
-
-                    # compute reconstructions
-                    #print(batch_features.size())
-                    codes = model.encoder(batch_features)
-                    outputs = model.decoder(codes)
-
-                    # compute training reconstruction loss
-                    local_loss = criterion(outputs,batch_features)
-
+                for phase in ['train', 'val']:
                     if phase == 'train':
-                        # compute accumulated gradients
-                        local_loss.backward()
+                        model.train()  # Set model to training mode
+                    else:
+                        model.eval()  # Set model to evaluate mode
 
-                        # perform parameter update based on current gradients
-                        optimizers[i][j].step()
+                    for batch_features in data_loaders[phase]:
+                        # load it to the active device
+                        batch_features = batch_features.to(run_device)
 
-                    # add the mini-batch training loss to epoch loss
-                    losses[phase] += local_loss.item()
+                        # reset the gradients back to zero
+                        # PyTorch accumulates gradients on subsequent backward passes
+                        optimizers[i][j].zero_grad()
 
-            # compute the epoch training loss
-            #losses['train'] = losses['train'] / data_lengths['train']
-            #losses['val'] = losses['val'] / data_lengths['val']
+                        # compute reconstructions
+                        #print(batch_features.size())
+                        codes = model.encoder(batch_features)
+                        outputs = model.decoder(codes)
 
-            losses['train'] = losses['train'] / len(data_loaders['train'])
-            losses['val'] = losses['val'] / len(data_loaders['val'])
+                        # compute training reconstruction loss
+                        local_loss = criterion(outputs,batch_features)
 
-            #check if best model
-            if(losses['val'] < best_model_dicts[i][j][0]):
-                best_model_dicts[i][j] = (losses['val'],models[i][j].state_dict())
+                        if phase == 'train':
+                            # compute accumulated gradients
+                            local_loss.backward()
 
-            train_losses[i][j].append(losses['train'])
-            val_losses[i][j].append(losses['val'])
+                            # perform parameter update based on current gradients
+                            optimizers[i][j].step()
 
-            # display the epoch training loss
-            print("epoch : {}/{}, train loss = {:.8f}, validation loss = {:.8f}".format(epoch + 1, epochs, losses['train'],losses['val']))
+                        # add the mini-batch training loss to epoch loss
+                        losses[phase] += local_loss.item()
+                        del local_loss
+                        del outputs
+
+                # compute the epoch training loss
+
+                losses['train'] = losses['train'] / len(data_loaders['train'])
+                losses['val'] = losses['val'] / len(data_loaders['val'])
+
+                #check if best model
+                if(losses['val'] < best_model_dicts[i][j][0]):
+                    best_model_dicts[i][j] = (losses['val'],model.state_dict())
+
+                train_losses[i][j].append(losses['train'])
+                val_losses[i][j].append(losses['val'])
+
+                # display the epoch training loss
+                print("epoch : {}/{}, train loss = {:.8f}, validation loss = {:.8f}".format(epoch + 1, epochs, losses['train'],losses['val']))
+
+                #early stopping
+                if(epoch>11):
+                    if(val_losses[i][j][epoch-10] < losses['val']):
+                        print("Early stopping!")
+                        break
+        except RuntimeError:
+            print("Can't complete this model, skipping...")
+            model = None
+
+        if(model != None):
+            #models[i][j] = model.to(store_device) 
+            del model          
     
 
 
@@ -274,10 +289,12 @@ for i in range(len(code_sides)):
 
 
 for i in range(len(code_sides)):
-    if(best_model_dicts[i][j][1]!=None):
-        models[i][j].load_state_dict(best_model_dicts[i][j][1])
-        PATH = "../../Data/OPTIMAM_NEW/model" + str(i) + "_" + str(j) +".pt"
-        torch.save(models[i][j], PATH)
+    for j in range(len(convolution_filters)):
+        if(best_model_dicts[i][j][1]!=None):
+            print("Restoring best model for "+ str(i) + "/" + str(j));
+            models[i][j].load_state_dict(best_model_dicts[i][j][1])
+            PATH = "../../Data/OPTIMAM_NEW/model" + str(i) + "_" + str(j) +".pt"
+            torch.save(models[i][j], PATH)
 
 
 # Let's extract some test examples to reconstruct using our trained autoencoder.
@@ -296,10 +313,12 @@ test_loader = torch.utils.data.DataLoader(
     test_dataset_subset, batch_size=5, shuffle=True
 )
 
-test_example_sets = [None] * len(code_sides)
-code_sets = [None] * len(code_sides)
-reconstruction_sets = [None] * len(code_sides)
-
+#test_example_sets = ([None] * len(code_sides)) * len(convolution_filters)
+#code_sets = ([None] * len(code_sides)) * len(convolution_filters)
+#reconstruction_sets = ([None] * len(code_sides)) * len(convolution_filters)
+test_example_sets = []
+code_sets = []
+reconstruction_sets = []
 
 # ## Visualize Results
 # 
@@ -307,18 +326,27 @@ reconstruction_sets = [None] * len(code_sides)
 
 # In[ ]:
 
+torch.cuda.empty_cache()
 
 with torch.no_grad():
     for i in range(len(code_sides)):
-        for batch_features in test_loader:
-            #batch_features = batch_features[0]
-            test_examples = batch_features.to(device)
-            n_codes = models[i].encoder(test_examples)
-            reconstruction = models[i](test_examples)
-            break;
-        test_example_sets[i] = test_examples
-        code_sets[i] = n_codes
-        reconstruction_sets[i] = reconstruction
+        test_example_sets.append([None] * len(convolution_filters))
+        code_sets.append([None] * len(convolution_filters))
+        reconstruction_sets.append([None] * len(convolution_filters))
+        for j in range(len(convolution_filters)):
+            if(best_model_dicts[i][j][1]!=None):
+                model = models[i][j].to(run_device)
+                for batch_features in test_loader:
+                    test_examples = batch_features.to(run_device)
+                    n_codes = model.encoder(test_examples)
+                    reconstruction = model.decoder(n_codes)
+                    break;
+                test_example_sets[i][j] = test_examples.to(store_device)
+                code_sets[i][j] = n_codes.to(store_device)
+                reconstruction_sets[i][j] = reconstruction.to(store_device)
+                del test_examples
+                del n_codes
+                del reconstruction
 
             
 
@@ -328,40 +356,42 @@ with torch.no_grad():
 
 with torch.no_grad():
     for i in range(len(code_sides)):
-        number = 5
-        plt.figure(figsize=(25, 9))
-        for index in range(number):
-            # display original
-            ax = plt.subplot(3, number, index + 1)
-            test_examples = test_example_sets[i]
-            copyback = test_examples[index].cpu()
-            #plt.imshow(copyback.numpy().reshape(height, width), vmin=0, vmax=65535)
-            plt.imshow(copyback.reshape(height, width))
-            plt.gray()
-            ax.get_xaxis().set_visible(False)
-            ax.get_yaxis().set_visible(False)
+        for j in range(len(convolution_filters)):
+            if(best_model_dicts[i][j][1]!=None):
+                number = 5
+                plt.figure(figsize=(25, 9))
+                for index in range(number):
+                    # display original
+                    ax = plt.subplot(3, number, index + 1)
+                    test_examples = test_example_sets[i][j]
+                    copyback = test_examples[index].cpu()
+                    #plt.imshow(copyback.numpy().reshape(height, width), vmin=0, vmax=65535)
+                    plt.imshow(copyback.reshape(height, width))
+                    plt.gray()
+                    ax.get_xaxis().set_visible(False)
+                    ax.get_yaxis().set_visible(False)
 
-            # display codes
-            ax = plt.subplot(3, number, index + 1 + number)
-            codes = code_sets[i]
-            code_copyback = codes[index].cpu()
-            plt.imshow(code_copyback.numpy().reshape(code_sides[i],code_sides[i]))
-            plt.gray()
-            ax.get_xaxis().set_visible(False)
-            ax.get_yaxis().set_visible(False)
+                    # display codes
+                    ax = plt.subplot(3, number, index + 1 + number)
+                    codes = code_sets[i][j]
+                    code_copyback = codes[index].cpu()
+                    plt.imshow(code_copyback.numpy().reshape(code_sides[i],code_sides[i]))
+                    plt.gray()
+                    ax.get_xaxis().set_visible(False)
+                    ax.get_yaxis().set_visible(False)
 
-            # display reconstruction
-            ax = plt.subplot(3, number, index + 6 + number)
-            reconstruction = reconstruction_sets[i]
-            recon_copyback = reconstruction[index].cpu()
-            plt.imshow(recon_copyback.reshape(height, width))
-            plt.gray()
-            ax.get_xaxis().set_visible(False)
-            ax.get_yaxis().set_visible(False)
-        
-        out_path = "output"+str(i)+".png" 
-        plt.savefig(out_path)
-        plt.show()
+                    # display reconstruction
+                    ax = plt.subplot(3, number, index + 6 + number)
+                    reconstruction = reconstruction_sets[i][j]
+                    recon_copyback = reconstruction[index].cpu()
+                    plt.imshow(recon_copyback.reshape(height, width))
+                    plt.gray()
+                    ax.get_xaxis().set_visible(False)
+                    ax.get_yaxis().set_visible(False)
+                
+                out_path = "output"+ str(i) + "_" + str(j) +".png" 
+                plt.savefig(out_path)
+                #plt.show()
 
 
 # In[ ]:
