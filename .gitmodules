@@ -1,0 +1,3 @@
+[submodule "pyTorchReg"]
+	path = pyTorchReg
+	url = https://github.com/dizam92/pyTorchReg.git
