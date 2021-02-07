@@ -14,15 +14,19 @@ class ExtensibleEncoder(nn.Module):
         self.input_shape = kwargs["input_shape"] #xy
         self.conv_scale = kwargs["convolutions"] #conv at first level
         self.code_size = kwargs["code_size"]
+        self.dropout_chance = kwargs["dropout_chance"]
         
         encoderPlanBase = OrderedDict([
             ('conv1', nn.Conv2d(in_channels=1, out_channels=self.conv_scale, kernel_size=3, stride=1, padding=1)),
+            ('dropout1', nn.Dropout2d(self.dropout_chance / 4,True)),
             ('relu1', nn.ReLU()),
             ('maxpool1', nn.MaxPool2d(kernel_size=2, stride=2)), # x/2 x y/2 x conv
             ('conv2', nn.Conv2d(in_channels=self.conv_scale, out_channels=self.conv_scale**2, kernel_size=3, stride=1, padding=1)),
+            ('dropout2', nn.Dropout2d(self.dropout_chance / 2,True)),
             ('relu2', nn.ReLU()),
             ('maxpool2', nn.MaxPool2d(kernel_size=2, stride=2)), # x/4 x y/4 x conv^2
             ('conv3', nn.Conv2d(in_channels=self.conv_scale**2, out_channels=self.conv_scale**3, kernel_size=3, stride=1, padding=1)),
+            ('dropout3', nn.Dropout2d(self.dropout_chance,True)),
             ('relu3', nn.ReLU()),
             ('maxpool3', nn.MaxPool2d(kernel_size=2, stride=2)), # x/8 x y/8 x conv^3
             ('flatten', nn.Flatten()) #x/8*y/8*conv^3 
@@ -54,15 +58,19 @@ class ExtensibleDecoder(nn.Module):
         self.input_shape = kwargs["input_shape"] #xy
         self.conv_scale = kwargs["convolutions"] #conv at first level
         self.code_size = kwargs["code_size"]
+        self.dropout_chance = kwargs["dropout_chance"]
         
         decoderPlanBase = OrderedDict([
             ('conv3', nn.Conv2d(in_channels=self.conv_scale**3, out_channels=self.conv_scale**2, kernel_size=3, stride=1, padding=1)),
+            ('dropout3', nn.Dropout2d(self.dropout_chance,True)),
             ('relu3', nn.ReLU()),
             ('upsample3', nn.Upsample(scale_factor=2,mode='bilinear')),
             ('conv2', nn.Conv2d(in_channels=self.conv_scale**2, out_channels=self.conv_scale, kernel_size=3, stride=1, padding=1)),
+            ('dropout2', nn.Dropout2d(self.dropout_chance / 2,True)),
             ('relu2', nn.ReLU()),
             ('upsample2', nn.Upsample(scale_factor=2,mode='bilinear')),
             ('conv1', nn.Conv2d(in_channels=self.conv_scale, out_channels=1, kernel_size=3, stride=1, padding=1)),
+            ('dropout1', nn.Dropout2d(self.dropout_chance / 4,True)),
             ('relu1', nn.ReLU()),
             ('upsample1', nn.Upsample(scale_factor=2,mode='bilinear'))
         ])
@@ -96,9 +104,10 @@ class SplitAutoencoder(nn.Module):
         self.input_shape = kwargs["input_shape"] #xy
         self.conv_scale = kwargs["convolutions"] #conv at first level
         self.code_size = kwargs["code_size"]
+        self.dropout_chance = kwargs["dropout_chance"]
         
-        self.encoder = ExtensibleEncoder(input_shape=self.input_shape,code_size=self.code_size,convolutions=self.conv_scale)
-        self.decoder = ExtensibleDecoder(input_shape=self.input_shape,code_size=self.code_size,convolutions=self.conv_scale)
+        self.encoder = ExtensibleEncoder(input_shape=self.input_shape,code_size=self.code_size,convolutions=self.conv_scale, dropout_chance=self.dropout_chance)
+        self.decoder = ExtensibleDecoder(input_shape=self.input_shape,code_size=self.code_size,convolutions=self.conv_scale, dropout_chance=self.dropout_chance)
     
     def reconstruct_to(self, scale):
         self.input_shape = scale
