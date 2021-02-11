@@ -91,11 +91,13 @@ class ExtensibleDecoder(nn.Module):
         
         self.fc1 = nn.Linear(in_features=self.code_size,out_features=flattened_size)
         self.unflatten = nn.Unflatten(1,(int(self.conv_scale*4),int(x/8),int(y/8)))
+        self.sigmoid = nn.Sigmoid()
                                      
     def forward(self, features):
         fc_out = self.fc1(features)
         unflattened = self.unflatten(fc_out)
-        out = self.cnnStage(unflattened)
+        sigmo = self.sigmoid(unflattened)
+        out = self.cnnStage(sigmo)
         return out    
     
 class SplitAutoencoder(nn.Module):
