@@ -162,3 +162,40 @@ class OldSplitAutoencoder(nn.Module):
         code = self.encoder(features)
         out = self.decoder(code)
         return out
+
+#VAE version. Note that we cannot access the encodings here (as they're rather complex) so we don't bother with spliting the structure directly.
+#This code is adapted from the VAE example for Pytorch, found at https://github.com/pytorch/examples/tree/master/vae
+
+class VAE(nn.Module):
+    def __init__(self):
+        super(VAE, self).__init__()
+        self.input_shape = kwargs["input_shape"] #xy
+        self.code_size = kwargs.pop('code_size', 100)
+        self.hidden_layer_size = kwargs.pop('hidden_layer', 400)
+        #self.dropout_chance = kwargs.pop('dropout_chance', 0.0)
+        hidden_layer_size = 100
+        self.fc1 = nn.Linear(in_features=kwargs["input_shape"], out_features=hidden_layer_size)
+        self.fc21 = nn.Linear(in_features=hidden_layer_size, out_features=self.code_size)
+        self.fc22 = nn.Linear(in_features=hidden_layer_size, out_features=self.code_size)
+        self.fc3 = nn.Linear(in_features=self.code_size, out_features=hidden_layer_size)
+        self.fc4 = nn.Linear(in_features=hidden_layer_size, out_features=kwargs["input_shape"]
+                             
+        #self.dropout1 = nn.
+
+    def encode(self, x):
+        h1 = F.relu(self.fc1(x))
+        return self.fc21(h1), self.fc22(h1)
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5*logvar)
+        eps = torch.randn_like(std)
+        return mu + eps*std
+
+    def decode(self, z):
+        h3 = F.relu(self.fc3(z))
+        return torch.sigmoid(self.fc4(h3))
+
+    def forward(self, x):
+        mu, logvar = self.encode(x.view(-1, 784))
+        z = self.reparameterize(mu, logvar)
+        return self.decode(z), mu, logvar
