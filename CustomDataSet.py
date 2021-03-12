@@ -25,7 +25,7 @@ class CustomDataSet(Dataset):
 
     def __getitem__(self, idx):
         img_loc = os.path.join(self.main_dir, self.total_imgs[idx])
-        image = Image.open(img_loc).convert("F")
+        image = Image.open(img_loc).convert("RGB")
         tensor_image = self.transform(image)
         return tensor_image
     
@@ -38,8 +38,7 @@ class CustomDataSetWithError(Dataset):
         self.criterion = nn.MSELoss()
         
         self.plain_transform = torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(0.0,65535.0)
+            torchvision.transforms.ToTensor()
         ])
 
     def __len__(self):
@@ -47,7 +46,7 @@ class CustomDataSetWithError(Dataset):
 
     def __getitem__(self, idx):
         img_loc = os.path.join(self.main_dir, self.total_imgs[idx])
-        image = Image.open(img_loc).convert("F")
+        image = Image.open(img_loc).convert("RGB")
         base_image = self.plain_transform(image)
         transformed_image = self.transform(image)
         error = self.criterion(transformed_image,base_image)
