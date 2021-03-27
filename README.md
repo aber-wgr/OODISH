@@ -1,6 +1,5 @@
 # OODISH
 Pytorch implementation of Out-Of-Distribution Error Detection algorithms
-This repository is built for the paper 'Out of Distribution Detection in MedicalImaging via Convolutional Autoencoders' by Will Robinson.
 
 This project is primarily divided into two IronPython notebooks which can be loaded using Jupyter or your interpreter of choice.
 
