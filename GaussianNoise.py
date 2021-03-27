@@ -1,4 +1,4 @@
-#taken from https://discuss.pytorch.org/t/how-to-add-noise-to-mnist-dataset-when-using-pytorch/59745/2
+#basics taken from https://discuss.pytorch.org/t/how-to-add-noise-to-mnist-dataset-when-using-pytorch/59745/2
 #clipped to rescale to stated min/max
 
 import torch

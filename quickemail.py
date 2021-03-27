@@ -1,18 +1,17 @@
 import smtplib, ssl
 from email.mime.text import MIMEText
 
-def SendEmail(subject='Test Email', text='This is a test', recipient='wgr@aber.ac.uk'):
-    sender = 'wgr@aber.ac.uk'
+def SendEmail(subject='Test Email', text='This is a test', recipient='target@email.com'):
     port = 587
-    host = 'relay.plus.net'
-    sender = "will@chalicier.plus.com"
-    username = "chalicier"
-    password = "oojaxooz"
+    host = 'host.smtp.server'
+    sender = "my@email.com"
+    username = "myemailusername"
+    password = "myemailpassword"
 
 
     msg = MIMEText(text)
     msg['Subject'] = subject
-    msg['From'] = "will@chalicier.plus.com"
+    msg['From'] = "my@email.com"
     msg['To'] = recipient
     receivers = [recipient]
 
