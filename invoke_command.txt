@@ -1,1 +1,0 @@
-sbatch --gres gpu:1 anaconda3-launch -env pytorch python autoencoder-pytorch_validate.py
